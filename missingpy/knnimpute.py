@@ -10,12 +10,15 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import check_array
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.validation import FLOAT_DTYPES
-from sklearn.neighbors.base import _check_weights
-from sklearn.neighbors.base import _get_weights
+from sklearn.neighbors._base import _check_weights
+from sklearn.neighbors._base import _get_weights
 
 from .pairwise_external import pairwise_distances
 from .pairwise_external import _get_mask
 from .pairwise_external import _MASKED_METRICS
+
+from .utils import is_nan
+
 
 __all__ = [
     'KNNImputer',
@@ -115,7 +118,8 @@ class KNNImputer(BaseEstimator, TransformerMixin):
 
     def __init__(self, missing_values="NaN", n_neighbors=5,
                  weights="uniform", metric="masked_euclidean",
-                 row_max_missing=0.5, col_max_missing=0.8, copy=True):
+                 row_max_missing=0.5, col_max_missing=0.8,
+                 fallback_strategy="mean", copy=True):
 
         self.missing_values = missing_values
         self.n_neighbors = n_neighbors
@@ -123,6 +127,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         self.metric = metric
         self.row_max_missing = row_max_missing
         self.col_max_missing = col_max_missing
+        self.fallback_strategy = fallback_strategy
         self.copy = copy
 
     def _impute(self, dist, X, fitted_X, mask, mask_fx):
@@ -193,8 +198,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         """
 
         # Check data integrity and calling arguments
-        force_all_finite = False if self.missing_values in ["NaN",
-                                                            np.nan] else True
+        force_all_finite = not is_nan(self.missing_values)
         if not force_all_finite:
             if self.metric not in _MASKED_METRICS and not callable(
                     self.metric):
@@ -213,7 +217,12 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         if np.any(mask.sum(axis=0) > (X.shape[0] * self.col_max_missing)):
             raise ValueError("Some column(s) have more than {}% missing values"
                              .format(self.col_max_missing * 100))
-        X_col_means = np.ma.array(X, mask=mask).mean(axis=0).data
+        if self.fallback_strategy == "mean":
+            X_col_means = np.ma.array(X, mask=mask).mean(axis=0).data
+        elif self.fallback_strategy == "median":
+            X_col_means = np.ma.median(np.ma.array(X, mask=mask), axis=0).data
+        else:
+            raise ValueError("unknown strategy")
 
         # Check if % missing in any row > row_max_missing
         bad_rows = mask.sum(axis=1) > (mask.shape[1] * self.row_max_missing)
@@ -250,8 +259,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         """
 
         check_is_fitted(self, ["fitted_X_", "statistics_"])
-        force_all_finite = False if self.missing_values in ["NaN",
-                                                            np.nan] else True
+        force_all_finite = not is_nan(self.missing_values)
         X = check_array(X, accept_sparse=False, dtype=FLOAT_DTYPES,
                         force_all_finite=force_all_finite, copy=self.copy)
 
@@ -278,7 +286,8 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         if np.any(bad_rows):
             warnings.warn(
                 "There are rows with more than {0}% missing values. The "
-                "missing features in these rows are imputed with column means."
+                "missing features in these rows are imputed using "
+                " fallback_strategy."
                     .format(self.row_max_missing * 100))
             X_bad = X[bad_rows, :]
             X = X[~bad_rows, :]

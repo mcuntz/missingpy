@@ -13,6 +13,9 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 from .pairwise_external import _get_mask
 
+from .utils import is_nan
+
+
 __all__ = [
     'MissForest',
 ]
@@ -82,7 +85,7 @@ class MissForest(BaseEstimator, TransformerMixin):
         If True, a copy of X will be created. If False, imputation will
         be done in-place whenever possible.
 
-    criterion : tuple, optional (default = ('mse', 'gini'))
+    criterion : tuple, optional (default = ('squared_error', 'gini'))
         The function to measure the quality of a split.The first element of
         the tuple is for the Random Forest Regressor (for imputing numerical
         variables) while the second element is for the Random Forest
@@ -235,7 +238,7 @@ class MissForest(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, max_iter=10, decreasing=False, missing_values=np.nan,
-                 copy=True, n_estimators=100, criterion=('mse', 'gini'),
+                 copy=True, n_estimators=100, criterion=('squared_error', 'gini'),
                  max_depth=None, min_samples_split=2, min_samples_leaf=1,
                  min_weight_fraction_leaf=0.0, max_features='auto',
                  max_leaf_nodes=None, min_impurity_decrease=0.0,
@@ -408,7 +411,8 @@ class MissForest(BaseEstimator, TransformerMixin):
             if self.num_vars_ is not None:
                 gamma_new = np.sum((Ximp[:, self.num_vars_] - Ximp_old[:, self.num_vars_]) ** 2) / np.sum((Ximp[:, self.num_vars_]) ** 2)
 
-            print("Iteration:", self.iter_count_)
+            if self.verbose:
+                print("Iteration:", self.iter_count_)
             self.iter_count_ += 1
 
         return Ximp_old
@@ -434,8 +438,7 @@ class MissForest(BaseEstimator, TransformerMixin):
         """
 
         # Check data integrity and calling arguments
-        force_all_finite = False if self.missing_values in ["NaN",
-                                                            np.nan] else True
+        force_all_finite = not is_nan(self.missing_values)
 
         X = check_array(X, accept_sparse=False, dtype=np.float64,
                         force_all_finite=force_all_finite, copy=self.copy)
@@ -499,8 +502,7 @@ class MissForest(BaseEstimator, TransformerMixin):
         check_is_fitted(self, ["cat_vars_", "num_vars_", "statistics_"])
 
         # Check data integrity
-        force_all_finite = False if self.missing_values in ["NaN",
-                                                            np.nan] else True
+        force_all_finite = not is_nan(self.missing_values)
         X = check_array(X, accept_sparse=False, dtype=np.float64,
                         force_all_finite=force_all_finite, copy=self.copy)
 
